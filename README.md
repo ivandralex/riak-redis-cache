@@ -1,2 +1,2 @@
 # riak-redis-cache
-Redis for Riak written in Go
+Redis cache for Riak written in Go
