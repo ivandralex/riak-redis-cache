@@ -39,7 +39,7 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 			riakProxy.ServeHTTP(w, request)
 		} else {
 			fmt.Printf("Cached response %d\n", len(cached))
-			w.Write([]byte(cached))
+			writeDump(cached, w)
 		}
 	} else if request.Method == "POST" || request.Method == "PUT" {
 		//riakProxy.ServeHTTP(w, request)
@@ -97,4 +97,36 @@ func parsePath(path string) (string, string) {
 	}
 
 	return segments[2], segments[3]
+}
+
+func writeDump(dump string, w http.ResponseWriter) {
+	parts := strings.Split(dump, "\r\n")
+
+	var responseCode int
+	var body []byte
+
+	var bodyStarted bool
+
+	for i, p := range parts {
+		if i == 0 {
+			//TODO: response code parsing
+			responseCode = 200
+			continue
+		}
+
+		if p == "" {
+			bodyStarted = true
+			continue
+		}
+
+		if !bodyStarted {
+			keyValues := strings.Split(p, ": ")
+			w.Header().Add(keyValues[0], keyValues[1])
+		} else {
+			body = []byte(p)
+		}
+	}
+
+	w.WriteHeader(responseCode)
+	w.Write(body)
 }
