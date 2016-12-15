@@ -65,17 +65,17 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 func checkCache(request *http.Request) string {
 	bucket, key := parsePath(request.URL.Path)
 
-	fmt.Printf("Check cahce for /%s/%s\n", bucket, key)
+	//fmt.Printf("Check cahce for /%s/%s\n", bucket, key)
 
 	value, err := client.HGet(keyPrefix+bucket, key).Result()
 
 	if err == redis.Nil {
-		fmt.Printf("%s does not exists\n", key)
+		//fmt.Printf("%s does not exists\n", key)
 		return ""
 	} else if err != nil {
 		panic(err)
 	} else {
-		fmt.Printf("Found /%s/%s: %s\n", bucket, key, value)
+		fmt.Printf("From cache /%s/%s\n", bucket, key)
 		return value
 	}
 }
@@ -94,7 +94,7 @@ func cacheToRedis(request *http.Request, response *http.Response) {
 
 	value := string(dump[:])
 
-	fmt.Printf("Save cache for /%s/%s: %v\n", bucket, key, value)
+	//fmt.Printf("Save cache for /%s/%s: %v\n", bucket, key, value)
 
 	err = client.HSet(keyPrefix+bucket, key, value).Err()
 
