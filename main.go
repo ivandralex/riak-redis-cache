@@ -13,24 +13,28 @@ import (
 	redis "gopkg.in/redis.v5"
 )
 
+const redisAddr = "localhost:6379"
+const rianEndpoint = "http://localhost:8098"
+
 const keyPrefix = "riak_cache:"
 
 var client = redis.NewClient(&redis.Options{
-	Addr: "localhost:6379",
+	Addr: redisAddr,
 })
 
-var riakURL, err = url.Parse("http://localhost:8098")
+var riakURL, err = url.Parse(rianEndpoint)
 var riakProxy = riakproxy.GetProxy(riakURL, cacheToRedis)
 
 func main() {
 	http.HandleFunc("/", httpHandler)
-	log.Fatal(http.ListenAndServe(":8198", nil))
+	log.Fatal(http.ListenAndServe(":8400", nil))
 }
 
 func httpHandler(w http.ResponseWriter, request *http.Request) {
 	fmt.Printf("%s %s\n", request.Method, request.URL.Path)
 
-	if request.Method == "GET" {
+	//TODO: use custom interceptror for every http method
+	if request.Method == http.MethodGet || request.Method == http.MethodHead {
 		//Check cache
 		cached := checkCache(request)
 
@@ -39,10 +43,11 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 			riakProxy.ServeHTTP(w, request)
 		} else {
 			fmt.Printf("Cached response %d\n", len(cached))
-			writeDump(cached, w)
+			writeDump(cached, request.Method == http.MethodGet, w)
 		}
-	} else if request.Method == "POST" || request.Method == "PUT" {
-		//riakProxy.ServeHTTP(w, request)
+	} else if request.Method == http.MethodPost || request.Method == http.MethodPut {
+		//TODO: cache invalidation
+		riakProxy.ServeHTTP(w, request)
 	} else {
 		w.WriteHeader(405)
 		w.Write([]byte("Method not allowed"))
@@ -68,6 +73,11 @@ func checkCache(request *http.Request) string {
 }
 
 func cacheToRedis(request *http.Request, response *http.Response) {
+	//TODO: better abstraction
+	if response.StatusCode != 200 || request.Method != http.MethodGet {
+		return
+	}
+
 	bucket, key := parsePath(request.URL.Path)
 
 	dump, err := httputil.DumpResponse(response, true)
@@ -99,7 +109,7 @@ func parsePath(path string) (string, string) {
 	return segments[2], segments[3]
 }
 
-func writeDump(dump string, w http.ResponseWriter) {
+func writeDump(dump string, writeBody bool, w http.ResponseWriter) {
 	parts := strings.Split(dump, "\r\n")
 
 	var responseCode int
@@ -115,8 +125,12 @@ func writeDump(dump string, w http.ResponseWriter) {
 		}
 
 		if p == "" {
-			bodyStarted = true
-			continue
+			if writeBody {
+				bodyStarted = true
+				continue
+			} else {
+				break
+			}
 		}
 
 		if !bodyStarted {
