@@ -35,7 +35,10 @@ func main() {
 func httpHandler(w http.ResponseWriter, request *http.Request) {
 	fmt.Printf("%s %s\n", request.Method, request.URL.Path)
 
+	//TODO: abstract logic for proxy selection
+
 	if request.Method == http.MethodHead {
+		//TODO: use cache
 		riakDummyProxy.ServeHTTP(w, request)
 	} else if request.Method == http.MethodGet {
 		//TODO: wrap cache checking to proxy
@@ -43,14 +46,15 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 		//Check cache
 		cached := checkCache(request)
 
-		//If no cache forward request to Riak
 		if len(cached) == 0 {
+			//If no cache forward request to Riak
 			riakCacheableProxy.ServeHTTP(w, request)
 		} else {
-			fmt.Printf("Cached response %d\n", len(cached))
-			writeDump(cached, request.Method == http.MethodGet, w)
+			//Response with cached result
+			writeDump(cached, true, w)
 		}
-	} else if request.Method == http.MethodPost || request.Method == http.MethodPut {
+	} else if request.Method == http.MethodPost || request.Method == http.MethodPut || request.Method == http.MethodDelete {
+		//Forward to Riak and invalidate cache
 		cacheInvalidatorProxy.ServeHTTP(w, request)
 	} else {
 		w.WriteHeader(405)
