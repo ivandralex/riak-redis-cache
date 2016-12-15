@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 
@@ -39,7 +39,6 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 			riakProxy.ServeHTTP(w, request)
 		} else {
 			fmt.Printf("Cached response %d\n", len(cached))
-			w.WriteHeader(200)
 			w.Write([]byte(cached))
 		}
 	} else if request.Method == "POST" || request.Method == "PUT" {
@@ -71,20 +70,14 @@ func checkCache(request *http.Request) string {
 func cacheToRedis(request *http.Request, response *http.Response) {
 	bucket, key := parsePath(request.URL.Path)
 
-	bytes, err := ioutil.ReadAll(response.Body)
+	dump, err := httputil.DumpResponse(response, true)
 	if err != nil {
 		return
 	}
-	err = response.Body.Close()
-	if err != nil {
-		fmt.Printf("Failed to read response body for /%s/%s\n", bucket, key)
-		return
-	}
 
-	value := string(bytes[:])
+	value := string(dump[:])
 
-	fmt.Printf("Response code: %d\nResponse size: %d\n", response.StatusCode, len(value))
-	fmt.Printf("Save cache for /%s/%s: %s\n", bucket, key, value)
+	fmt.Printf("Save cache for /%s/%s: %v\n", bucket, key, value)
 
 	err = client.HSet(keyPrefix+bucket, key, value).Err()
 

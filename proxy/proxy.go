@@ -25,7 +25,7 @@ func (t *transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 	return resp, nil
 }
 
-//GetProxy factory method to create instance of Riak proxy
+//GetProxy creates instance of interceptable proxy
 func GetProxy(target *url.URL, interceptor Interceptor) *httputil.ReverseProxy {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.Transport = &transport{http.DefaultTransport, interceptor}
