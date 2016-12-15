@@ -22,8 +22,10 @@ var client = redis.NewClient(&redis.Options{
 	Addr: redisAddr,
 })
 
-var riakURL, err = url.Parse(rianEndpoint)
-var riakProxy = riakproxy.GetProxy(riakURL, cacheToRedis)
+var riakURL, _ = url.Parse(rianEndpoint)
+var riakCacheableProxy = riakproxy.GetProxy(riakURL, cacheToRedis)
+var riakDummyProxy = riakproxy.GetProxy(riakURL, passForward)
+var cacheInvalidatorProxy = riakproxy.GetProxy(riakURL, invalidateCache)
 
 func main() {
 	http.HandleFunc("/", httpHandler)
@@ -33,21 +35,23 @@ func main() {
 func httpHandler(w http.ResponseWriter, request *http.Request) {
 	fmt.Printf("%s %s\n", request.Method, request.URL.Path)
 
-	//TODO: use custom interceptror for every http method
-	if request.Method == http.MethodGet || request.Method == http.MethodHead {
+	if request.Method == http.MethodHead {
+		riakDummyProxy.ServeHTTP(w, request)
+	} else if request.Method == http.MethodGet {
+		//TODO: wrap cache checking to proxy
+
 		//Check cache
 		cached := checkCache(request)
 
 		//If no cache forward request to Riak
 		if len(cached) == 0 {
-			riakProxy.ServeHTTP(w, request)
+			riakCacheableProxy.ServeHTTP(w, request)
 		} else {
 			fmt.Printf("Cached response %d\n", len(cached))
 			writeDump(cached, request.Method == http.MethodGet, w)
 		}
 	} else if request.Method == http.MethodPost || request.Method == http.MethodPut {
-		//TODO: cache invalidation
-		riakProxy.ServeHTTP(w, request)
+		cacheInvalidatorProxy.ServeHTTP(w, request)
 	} else {
 		w.WriteHeader(405)
 		w.Write([]byte("Method not allowed"))
@@ -73,8 +77,7 @@ func checkCache(request *http.Request) string {
 }
 
 func cacheToRedis(request *http.Request, response *http.Response) {
-	//TODO: better abstraction
-	if response.StatusCode != 200 || request.Method != http.MethodGet {
+	if response.StatusCode != 200 {
 		return
 	}
 
@@ -96,6 +99,22 @@ func cacheToRedis(request *http.Request, response *http.Response) {
 	} else {
 		fmt.Printf("Cached /%s/%s\n", bucket, key)
 	}
+}
+
+func invalidateCache(request *http.Request, response *http.Response) {
+	bucket, key := parsePath(request.URL.Path)
+
+	err := client.HDel(keyPrefix+bucket, key).Err()
+
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Invalidated cache /%s/%s\n", bucket, key)
+	}
+}
+
+func passForward(request *http.Request, response *http.Response) {
+	//Do nothing
 }
 
 func parsePath(path string) (string, string) {
