@@ -14,21 +14,23 @@ import (
 )
 
 const redisAddr = "localhost:6379"
-const rianEndpoint = "http://localhost:8098"
+const rianEndpoint = "http://localhost:8100"
 
 const keyPrefix = "riak_cache:"
+const buckets = "buckets"
 
-var client = redis.NewClient(&redis.Options{
+var redisClient = redis.NewClient(&redis.Options{
 	Addr: redisAddr,
 })
 
 var riakURL, _ = url.Parse(rianEndpoint)
 var riakCacheableProxy = riakproxy.GetProxy(riakURL, cacheToRedis)
 var riakDummyProxy = riakproxy.GetProxy(riakURL, passForward)
-var cacheInvalidatorProxy = riakproxy.GetProxy(riakURL, invalidateCache)
+var cacheInvalidatorProxy = riakproxy.GetProxy(riakURL, invalidateSingleKey)
 
 func main() {
 	http.HandleFunc("/", httpHandler)
+	http.HandleFunc("/invalidate", invalidateCache)
 	log.Fatal(http.ListenAndServe(":8400", nil))
 }
 
@@ -67,7 +69,7 @@ func checkCache(request *http.Request) string {
 
 	//fmt.Printf("Check cahce for /%s/%s\n", bucket, key)
 
-	value, err := client.HGet(keyPrefix+bucket, key).Result()
+	value, err := redisClient.HGet(keyPrefix+bucket, key).Result()
 
 	if err == redis.Nil {
 		//fmt.Printf("%s does not exists\n", key)
@@ -94,9 +96,17 @@ func cacheToRedis(request *http.Request, response *http.Response) {
 
 	value := string(dump[:])
 
-	//fmt.Printf("Save cache for /%s/%s: %v\n", bucket, key, value)
+	bucketKey := keyPrefix + bucket
 
-	err = client.HSet(keyPrefix+bucket, key, value).Err()
+	//Save bucket key to set
+	err = redisClient.SAdd(keyPrefix+buckets, bucketKey).Err()
+
+	if err != nil {
+		fmt.Printf("Failed to save bucket key: %v\n", err)
+		panic(err)
+	}
+
+	err = redisClient.HSet(bucketKey, key, value).Err()
 
 	if err != nil {
 		panic(err)
@@ -105,10 +115,10 @@ func cacheToRedis(request *http.Request, response *http.Response) {
 	}
 }
 
-func invalidateCache(request *http.Request, response *http.Response) {
+func invalidateSingleKey(request *http.Request, response *http.Response) {
 	bucket, key := parsePath(request.URL.Path)
 
-	err := client.HDel(keyPrefix+bucket, key).Err()
+	err := redisClient.HDel(keyPrefix+bucket, key).Err()
 
 	if err != nil {
 		panic(err)
@@ -166,4 +176,17 @@ func writeDump(dump string, writeBody bool, w http.ResponseWriter) {
 
 	w.WriteHeader(responseCode)
 	w.Write(body)
+}
+
+func invalidateCache(w http.ResponseWriter, request *http.Request) {
+	var args []string
+
+	bucketsKey := keyPrefix + buckets
+
+	redisClient.Eval("local keys = redis.call('SMEMBERS', 'riak_cache:buckets'); for i, key in ipairs(keys) do redis.call('del', key) end", args)
+	redisClient.Del(bucketsKey)
+
+	fmt.Printf("Invalidated cache\n")
+
+	w.WriteHeader(200)
 }
