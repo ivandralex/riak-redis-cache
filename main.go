@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
@@ -48,7 +49,7 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 		//Check cache
 		cached := checkCache(request)
 
-		if len(cached) == 0 {
+		if cached == nil {
 			//If no cache forward request to Riak
 			riakCacheableProxy.ServeHTTP(w, request)
 		} else {
@@ -64,7 +65,7 @@ func httpHandler(w http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func checkCache(request *http.Request) string {
+func checkCache(request *http.Request) []byte {
 	bucket, key := parsePath(request.URL.Path)
 
 	//fmt.Printf("Check cahce for /%s/%s\n", bucket, key)
@@ -73,12 +74,16 @@ func checkCache(request *http.Request) string {
 
 	if err == redis.Nil {
 		//fmt.Printf("%s does not exists\n", key)
-		return ""
+		return nil
 	} else if err != nil {
 		panic(err)
 	} else {
 		fmt.Printf("From cache /%s/%s\n", bucket, key)
-		return value
+		dump, err := base64.StdEncoding.DecodeString(value)
+		if err != nil {
+			return dump
+		}
+		return nil
 	}
 }
 
@@ -91,10 +96,12 @@ func cacheToRedis(request *http.Request, response *http.Response) {
 
 	dump, err := httputil.DumpResponse(response, true)
 	if err != nil {
+		fmt.Printf("Failed to dump response %v\n", err)
 		return
 	}
 
-	value := string(dump[:])
+	value := base64.StdEncoding.EncodeToString(dump)
+	//value := string(dump[:])
 
 	bucketKey := keyPrefix + bucket
 
@@ -142,8 +149,8 @@ func parsePath(path string) (string, string) {
 	return segments[2], segments[3]
 }
 
-func writeDump(dump string, writeBody bool, w http.ResponseWriter) {
-	parts := strings.Split(dump, "\r\n")
+func writeDump(dump []byte, writeBody bool, w http.ResponseWriter) {
+	parts := strings.Split(string(dump[:]), "\r\n")
 
 	var responseCode int
 	var body []byte
