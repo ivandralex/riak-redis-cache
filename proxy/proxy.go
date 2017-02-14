@@ -28,7 +28,7 @@ func (t *transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 //GetProxy creates instance of interceptable proxy
 func GetProxy(target *url.URL, interceptor Interceptor) *httputil.ReverseProxy {
 	director := func(req *http.Request) {
-		req.URL.Scheme = "http"
+		req.URL.Scheme = target.Scheme
 		req.URL.Host = target.Host
 		req.Header.Set("Accept", "*/*")
 	}
